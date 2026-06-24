@@ -48,7 +48,7 @@ public sealed class SearchExcludeSyncService : BackgroundService
         base.Dispose();
     }
 
-    private void OnConfigChanged(object? sender, ConfigEventArgs e)
+    private void OnConfigChanged(object? sender, ConfigManager.ConfigEventArgs e)
     {
         // React only to the inputs — NOT to our own cache writes (which would loop).
         if (!e.ChangedConfig.ContainsKey("search.exclude-sync-urls")
