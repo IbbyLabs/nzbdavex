@@ -227,7 +227,7 @@ public class ProfilePlayController(
         // if all in a batch fail, advance to the next batch — until a winner, budget elapses,
         // total attempts (maxAttempts) are exhausted, or we run out of cached candidates.
         var preferredOrder = preferredOrderStore.GetOrder(entry.ProfileToken, entry.Type, entry.Id);
-        var fallbackQueue = BuildFallbackQueue(entry, preferredOrder);
+        var fallbackQueue = BuildFallbackQueue(entry, preferredOrder, configManager.IsPlaySubtitlePreferenceEnabled());
         var rankIndex = new Dictionary<string, int>();
         var displayRank = 0;
         var queueIndex = 0;
@@ -315,7 +315,7 @@ public class ProfilePlayController(
     }
 
     private static List<NzbResolutionCache.Candidate> BuildFallbackQueue(
-        NzbResolutionCache.Entry entry, IReadOnlyList<string>? preferredOrder)
+        NzbResolutionCache.Entry entry, IReadOnlyList<string>? preferredOrder, bool preferSubtitles)
     {
         var primary = entry.Primary;
         var queue = new List<NzbResolutionCache.Candidate>(entry.Candidates.Count) { primary };
@@ -324,21 +324,38 @@ public class ProfilePlayController(
             .Where((_, i) => i != entry.StartIndex)
             .ToList();
 
+        // Establish the base fallback order: the client-reported order when present,
+        // otherwise size proximity to the clicked release.
+        List<NzbResolutionCache.Candidate> orderedOthers;
         if (preferredOrder is { Count: > 0 })
         {
-            queue.AddRange(PreferredOrderStore.ApplyOrder(others, KeyOf, preferredOrder));
-            return queue;
+            orderedOthers = PreferredOrderStore.ApplyOrder(others, KeyOf, preferredOrder);
         }
-
-        if (primary.Size <= 0)
+        else if (primary.Size <= 0)
         {
-            queue.AddRange(others.OrderByDescending(c => c.Size));
-            return queue;
+            orderedOthers = others.OrderByDescending(c => c.Size).ToList();
+        }
+        else
+        {
+            orderedOthers = others.Where(c => c.Size <= primary.Size).OrderByDescending(c => c.Size)
+                .Concat(others.Where(c => c.Size > primary.Size).OrderBy(c => c.Size))
+                .ToList();
         }
 
-        queue.AddRange(others.Where(c => c.Size <= primary.Size).OrderByDescending(c => c.Size));
-        queue.AddRange(others.Where(c => c.Size > primary.Size).OrderBy(c => c.Size));
+        // When enabled, bias fallbacks toward releases that also carry subtitles — and,
+        // where the indexer reports it, the same subtitle language as the clicked release.
+        // OrderByDescending is stable, so the base order above is preserved within each
+        // subtitle tier and no candidate is ever discarded.
+        if (preferSubtitles)
+        {
+            var primaryLanguages = SubtitlePreference.ParseLanguages(primary.Subs);
+            var primaryHasSubs = primaryLanguages.Count > 0;
+            orderedOthers = orderedOthers
+                .OrderByDescending(c => SubtitlePreference.Rank(c.Subs, primaryLanguages, primaryHasSubs))
+                .ToList();
+        }
 
+        queue.AddRange(orderedOthers);
         return queue;
     }
 

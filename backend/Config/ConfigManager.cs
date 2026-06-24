@@ -313,6 +313,12 @@ public class ConfigManager
         return int.TryParse(v, out var n) ? TimeSpan.FromMinutes(Math.Clamp(n, 1, 60 * 24)) : TimeSpan.FromMinutes(5);
     }
 
+    public bool IsPlaySubtitlePreferenceEnabled()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("play.prefer-subtitles"));
+        return v == null || bool.Parse(v);
+    }
+
     public bool IsGrabStallFailoverEnabled()
     {
         var v = StringUtil.EmptyToNull(GetConfigValue("grab.stall-failover-enabled"));

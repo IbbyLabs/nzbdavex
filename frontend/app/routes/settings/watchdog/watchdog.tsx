@@ -13,6 +13,7 @@ export function WatchdogSettings({ config, setNewConfig }: WatchdogSettingsProps
     const verifyMode = config["play.verify-mode"] ?? "none";
     const enabled = (config["play.watchdog-enabled"] ?? "true") === "true";
     const stallFailoverEnabled = (config["grab.stall-failover-enabled"] ?? "true") === "true";
+    const subtitlePreference = (config["play.prefer-subtitles"] ?? "true") === "true";
 
     const variantsMode = config["variants.mode"] ?? "off";
     const variantsEnabled = variantsMode !== "off";
@@ -140,6 +141,22 @@ export function WatchdogSettings({ config, setNewConfig }: WatchdogSettingsProps
                 <p className={styles.hint}>
                     How long a recently-failed release is skipped on subsequent requests, so we don't hammer
                     the same dead release (and its indexer) over and over. Default 5.
+                </p>
+            </Form.Group>
+
+            <Form.Group className={styles.section}>
+                <Form.Check
+                    type="switch"
+                    id="play-prefer-subtitles"
+                    label="Prefer releases with subtitles on failover"
+                    disabled={!enabled}
+                    checked={subtitlePreference}
+                    onChange={e => set("play.prefer-subtitles", String(e.target.checked))} />
+                <p className={styles.hint}>
+                    When the release you picked carries subtitles, failover prefers alternative
+                    releases that also carry subtitles — and, where the indexer reports it, the
+                    same subtitle language — instead of ranking purely by size. Candidates are only
+                    reordered, never dropped. On by default.
                 </p>
             </Form.Group>
 
@@ -337,6 +354,7 @@ export function isWatchdogSettingsUpdated(config: Record<string, string>, newCon
         || config["play.max-attempts"] !== newConfig["play.max-attempts"]
         || config["play.verify-mode"] !== newConfig["play.verify-mode"]
         || config["play.candidate-negative-cache-minutes"] !== newConfig["play.candidate-negative-cache-minutes"]
+        || config["play.prefer-subtitles"] !== newConfig["play.prefer-subtitles"]
         || config["grab.stall-failover-enabled"] !== newConfig["grab.stall-failover-enabled"]
         || config["grab.stall-failover-window-seconds"] !== newConfig["grab.stall-failover-window-seconds"]
         || config["grab.stall-failover-ceiling-seconds"] !== newConfig["grab.stall-failover-ceiling-seconds"]
