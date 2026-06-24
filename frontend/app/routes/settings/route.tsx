@@ -35,6 +35,7 @@ const defaultConfig = {
     "api.search-user-agent": "",
     "usenet.providers": "",
     "usenet.max-download-connections": "15",
+    "usenet.max-download-connections-per-stream": "false",
     "usenet.max-queue-connections": "",
     "usenet.streaming-priority": "80",
     "usenet.article-buffer-size": "40",

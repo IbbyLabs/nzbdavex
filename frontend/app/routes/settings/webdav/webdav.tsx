@@ -57,6 +57,22 @@ export function WebdavSettings({ config, setNewConfig }: SabnzbdSettingsProps) {
                     Queue imports use their own budget — see Queue Download Connections below.
                 </Form.Text>
             </Form.Group>
+            <Form.Group>
+                <Form.Check
+                    className={styles.input}
+                    type="switch"
+                    id="max-download-connections-per-stream-checkbox"
+                    aria-describedby="max-download-connections-per-stream-help"
+                    label={`Apply limit per stream`}
+                    checked={config["usenet.max-download-connections-per-stream"] === "true"}
+                    onChange={e => setNewConfig({ ...config, "usenet.max-download-connections-per-stream": "" + e.target.checked })} />
+                <Form.Text id="max-download-connections-per-stream-help" muted>
+                    By default the limit above is a <strong>shared total</strong> across all active playback streams.
+                    Enable this to make it a <strong>per-stream</strong> limit instead, so each concurrent stream gets
+                    its own budget of that many connections. Your provider's connection limit still applies as a hard
+                    ceiling on the total connections actually opened.
+                </Form.Text>
+            </Form.Group>
             <hr />
             <Form.Group>
                 <Form.Label htmlFor="max-queue-connections-input">Queue Download Connections</Form.Label>
@@ -212,6 +228,7 @@ export function isWebdavSettingsUpdated(config: Record<string, string>, newConfi
     return config["webdav.user"] !== newConfig["webdav.user"]
         || config["webdav.pass"] !== newConfig["webdav.pass"]
         || config["usenet.max-download-connections"] !== newConfig["usenet.max-download-connections"]
+        || config["usenet.max-download-connections-per-stream"] !== newConfig["usenet.max-download-connections-per-stream"]
         || config["usenet.max-queue-connections"] !== newConfig["usenet.max-queue-connections"]
         || config["usenet.streaming-priority"] !== newConfig["usenet.streaming-priority"]
         || config["usenet.article-buffer-size"] !== newConfig["usenet.article-buffer-size"]

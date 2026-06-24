@@ -101,11 +101,24 @@ public class DownloadingNntpClient : WrappingNntpClient
 
     private async Task<PrioritizedSemaphore> AcquireExclusiveConnectionAsync(CancellationToken cancellationToken)
     {
-        var downloadPriorityContext = cancellationToken.GetContext<DownloadPriorityContext>();
-        var semaphorePriority = downloadPriorityContext?.Priority ?? SemaphorePriority.Low;
-        var semaphore = semaphorePriority == SemaphorePriority.High ? _streamingSemaphore : _queueSemaphore;
-        await semaphore.WaitAsync(semaphorePriority, cancellationToken).ConfigureAwait(false);
+        var (semaphore, priority) = SelectSemaphore(cancellationToken);
+        await semaphore.WaitAsync(priority, cancellationToken).ConfigureAwait(false);
         return semaphore;
+    }
+
+    // Picks the semaphore (and its priority) a download should acquire from.
+    // High-priority streaming reads use the per-stream semaphore carried on the
+    // DownloadPriorityContext when "per stream" mode is enabled, otherwise the
+    // shared global streaming semaphore. Low-priority queue reads always use the
+    // queue semaphore.
+    private (PrioritizedSemaphore Semaphore, SemaphorePriority Priority) SelectSemaphore(CancellationToken cancellationToken)
+    {
+        var context = cancellationToken.GetContext<DownloadPriorityContext>();
+        var priority = context?.Priority ?? SemaphorePriority.Low;
+        var semaphore = priority == SemaphorePriority.High
+            ? context?.StreamSemaphore ?? _streamingSemaphore
+            : _queueSemaphore;
+        return (semaphore, priority);
     }
 
     public override async Task<UsenetExclusiveConnection> AcquireExclusiveConnectionAsync
@@ -136,8 +149,7 @@ public class DownloadingNntpClient : WrappingNntpClient
         IReadOnlyList<string> segmentIds, int depth,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var priority = cancellationToken.GetContext<DownloadPriorityContext>()?.Priority ?? SemaphorePriority.Low;
-        var semaphore = priority == SemaphorePriority.High ? _streamingSemaphore : _queueSemaphore;
+        var (semaphore, priority) = SelectSemaphore(cancellationToken);
         await semaphore.WaitAsync(priority, cancellationToken).ConfigureAwait(false);
         try
         {
@@ -155,8 +167,7 @@ public class DownloadingNntpClient : WrappingNntpClient
         IReadOnlyList<string> segmentIds, int depth,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var priority = cancellationToken.GetContext<DownloadPriorityContext>()?.Priority ?? SemaphorePriority.Low;
-        var semaphore = priority == SemaphorePriority.High ? _streamingSemaphore : _queueSemaphore;
+        var (semaphore, priority) = SelectSemaphore(cancellationToken);
         await semaphore.WaitAsync(priority, cancellationToken).ConfigureAwait(false);
         try
         {
@@ -174,8 +185,7 @@ public class DownloadingNntpClient : WrappingNntpClient
         IReadOnlyList<string> segmentIds, int depth,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var priority = cancellationToken.GetContext<DownloadPriorityContext>()?.Priority ?? SemaphorePriority.Low;
-        var semaphore = priority == SemaphorePriority.High ? _streamingSemaphore : _queueSemaphore;
+        var (semaphore, priority) = SelectSemaphore(cancellationToken);
         await semaphore.WaitAsync(priority, cancellationToken).ConfigureAwait(false);
         try
         {

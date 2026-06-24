@@ -165,6 +165,16 @@ public class ConfigManager
         );
     }
 
+    // When true, the max-download-connections limit is applied per playback
+    // stream (each concurrent stream gets its own budget) rather than as a
+    // single pool shared across all streams. The provider's connection limit
+    // still caps the actual number of open connections.
+    public bool IsMaxDownloadConnectionsPerStream()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("usenet.max-download-connections-per-stream"));
+        return v != null && bool.Parse(v);
+    }
+
     public int GetMaxQueueConnections()
     {
         var pool = Math.Max(1, GetUsenetProviderConfig().TotalPooledConnections);
