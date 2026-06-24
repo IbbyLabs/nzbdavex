@@ -24,6 +24,12 @@ public abstract class BaseStoreStreamFile(HttpContext context, ConfigManager con
         // mirroring how DownloadingNntpClient resizes the shared streaming
         // semaphore. The per-stream count depends on the total connection
         // setting, the per-stream preset, and (in auto mode) the provider pool.
+        //
+        // The per-stream enable toggle (usenet.max-download-connections-per-stream)
+        // is intentionally excluded: whether a stream gets its own budget is decided
+        // once in CreatePerStreamSemaphore when the stream starts, so flipping the
+        // switch only affects newly created streams — an in-flight stream keeps the
+        // mode it began with.
         EventHandler<ConfigManager.ConfigEventArgs>? onConfigChanged = null;
         if (streamSemaphore is { } perStreamSemaphore)
         {
