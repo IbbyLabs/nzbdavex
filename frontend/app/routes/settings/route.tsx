@@ -69,6 +69,8 @@ const defaultConfig = {
     "grab.stall-failover-window-seconds": "2",
     "grab.stall-failover-ceiling-seconds": "5",
     "search.exclude-patterns": "",
+    "search.exclude-sync-urls": "",
+    "search.exclude-sync-refresh-minutes": "720",
     "variants.mode": "off",
     "variants.tolerance-pct": "25",
     "variants.max-per-group": "3",
