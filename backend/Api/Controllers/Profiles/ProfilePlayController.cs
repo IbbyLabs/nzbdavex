@@ -446,8 +446,11 @@ public class ProfilePlayController(
                         break;
                     case PlaybackFastVerifier.Verdict.Timeout:
                         // Don't poison on timeout — provider was just slow.
-                        // Try it anyway as a last resort if we run out of candidates.
-                        ready[rankIndex[r.Candidate.NzbUrl] + 10000] = r;
+                        // Try it anyway as a last resort if we run out of candidates, but only
+                        // when we actually fetched the NZB; a timeout from cancellation has no
+                        // bytes to commit and must not be enqueued (it would be wrongly poisoned).
+                        if (r.NzbBytes is not null)
+                            ready[rankIndex[r.Candidate.NzbUrl] + 10000] = r;
                         break;
                 }
             }
@@ -754,10 +757,14 @@ public class ProfilePlayController(
     {
         try
         {
+            // Only inspect the NZB for sidecar subs when the feature is on AND the indexer
+            // hasn't already declared subs — in that case HasSubtitles is true regardless, so
+            // parsing the NZB cannot change selection and would just be wasted work.
+            var shouldDetectSidecarSubs = detectSidecarSubs && string.IsNullOrWhiteSpace(candidate.Subs);
             var preflighted = preflightCache.Get(candidate.NzbUrl);
             if (preflighted is { Verdict: PlaybackFastVerifier.Verdict.Available, NzbBytes: { } cachedBytes })
             {
-                var cachedSidecar = detectSidecarSubs && await HasSidecarSubtitlesAsync(cachedBytes).ConfigureAwait(false);
+                var cachedSidecar = shouldDetectSidecarSubs && await HasSidecarSubtitlesAsync(cachedBytes).ConfigureAwait(false);
                 return new PreVerifyResult(candidate, cachedBytes, preflighted.Verdict, preflighted.ResponderHost, cachedSidecar);
             }
 
@@ -770,7 +777,7 @@ public class ProfilePlayController(
             pvTimer.Restart();
             using var verifyStream = new MemoryStream(nzbBytes, writable: false);
             var outcome = await fastVerifier.VerifyAsync(verifyStream, verifyMode, verifySampleCount, ct).ConfigureAwait(false);
-            var hasSidecar = detectSidecarSubs && await HasSidecarSubtitlesAsync(nzbBytes).ConfigureAwait(false);
+            var hasSidecar = shouldDetectSidecarSubs && await HasSidecarSubtitlesAsync(nzbBytes).ConfigureAwait(false);
             Log.Debug("play-timing preverify {Indexer} fetch={Fetch}ms verify={Verify}ms verdict={Verdict}",
                 candidate.IndexerName, msFetch, pvTimer.ElapsedMilliseconds, outcome.Verdict);
             return new PreVerifyResult(candidate, nzbBytes, outcome.Verdict, outcome.ResponderHost, hasSidecar);
