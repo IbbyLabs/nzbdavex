@@ -43,17 +43,28 @@ export function WebdavSettings({ config, setNewConfig }: SabnzbdSettingsProps) {
             <hr />
             <Form.Group>
                 <Form.Label htmlFor="max-download-connections-input">Max Download Connections</Form.Label>
-                <Form.Control
-                    {...className([styles.input, !isValidMaxDownloadConnections(config["usenet.max-download-connections"]) && styles.error])}
-                    type="text"
-                    id="max-download-connections-input"
+                <Form.Check
+                    className={styles.input}
+                    type="switch"
+                    id="max-download-connections-auto-checkbox"
                     aria-describedby="max-download-connections-help"
-                    placeholder="15"
-                    value={config["usenet.max-download-connections"]}
-                    onChange={e => setNewConfig({ ...config, "usenet.max-download-connections": e.target.value })} />
+                    label={`Auto — use all Pool provider connections`}
+                    checked={isAutoMaxDownloadConnections(config["usenet.max-download-connections"])}
+                    onChange={e => setNewConfig({ ...config, "usenet.max-download-connections": e.target.checked ? "0" : "15" })} />
+                {!isAutoMaxDownloadConnections(config["usenet.max-download-connections"]) && (
+                    <Form.Control
+                        {...className([styles.input, !isValidMaxDownloadConnections(config["usenet.max-download-connections"]) && styles.error])}
+                        type="text"
+                        id="max-download-connections-input"
+                        aria-describedby="max-download-connections-help"
+                        placeholder="15"
+                        value={config["usenet.max-download-connections"]}
+                        onChange={e => setNewConfig({ ...config, "usenet.max-download-connections": e.target.value })} />
+                )}
                 <Form.Text id="max-download-connections-help" muted>
-                    The maximum number of connections used for <strong>webdav streaming</strong> (playback).
-                    Set this to the minimum number of connections that fully saturates your streaming bandwidth.
+                    The total connections used for <strong>webdav streaming</strong> (playback). Leave on
+                    <strong> Auto</strong> to use the combined connection limit of your Pool providers — it tracks
+                    changes as you add or remove providers — or turn Auto off to set a fixed number.
                     Queue imports use their own budget — see Queue Download Connections below.
                 </Form.Text>
             </Form.Group>
@@ -67,12 +78,32 @@ export function WebdavSettings({ config, setNewConfig }: SabnzbdSettingsProps) {
                     checked={config["usenet.max-download-connections-per-stream"] === "true"}
                     onChange={e => setNewConfig({ ...config, "usenet.max-download-connections-per-stream": "" + e.target.checked })} />
                 <Form.Text id="max-download-connections-per-stream-help" muted>
-                    By default the limit above is a <strong>shared total</strong> across all active playback streams.
-                    Enable this to make it a <strong>per-stream</strong> limit instead, so each concurrent stream gets
-                    its own budget of that many connections. Your provider's connection limit still applies as a hard
-                    ceiling on the total connections actually opened.
+                    By default the budget above is a <strong>shared total</strong> across all active playback streams.
+                    Enable this to give each concurrent stream <strong>its own budget</strong> instead, sized by the
+                    performance preset below. Your provider's connection limit still applies as a hard ceiling on the
+                    total connections actually opened.
                 </Form.Text>
             </Form.Group>
+            {config["usenet.max-download-connections-per-stream"] === "true" && (
+                <Form.Group>
+                    <Form.Label htmlFor="max-download-connections-per-stream-preset-select">Per-stream performance</Form.Label>
+                    <Form.Select
+                        className={styles.input}
+                        id="max-download-connections-per-stream-preset-select"
+                        aria-describedby="max-download-connections-per-stream-preset-help"
+                        value={config["usenet.max-download-connections-per-stream-preset"] || "high"}
+                        onChange={e => setNewConfig({ ...config, "usenet.max-download-connections-per-stream-preset": e.target.value })}>
+                        <option value="low">Low — 25% of the budget per stream</option>
+                        <option value="medium">Medium — 50% of the budget per stream</option>
+                        <option value="high">High — 75% of the budget per stream</option>
+                        <option value="max">Max — 100% (full budget per stream)</option>
+                    </Form.Select>
+                    <Form.Text id="max-download-connections-per-stream-preset-help" muted>
+                        How aggressively each stream may use the budget above. Higher fills and seeks faster per stream;
+                        lower keeps more connections free for other simultaneous streams.
+                    </Form.Text>
+                </Form.Group>
+            )}
             <hr />
             <Form.Group>
                 <Form.Label htmlFor="max-queue-connections-input">Queue Download Connections</Form.Label>
@@ -229,6 +260,7 @@ export function isWebdavSettingsUpdated(config: Record<string, string>, newConfi
         || config["webdav.pass"] !== newConfig["webdav.pass"]
         || config["usenet.max-download-connections"] !== newConfig["usenet.max-download-connections"]
         || config["usenet.max-download-connections-per-stream"] !== newConfig["usenet.max-download-connections-per-stream"]
+        || config["usenet.max-download-connections-per-stream-preset"] !== newConfig["usenet.max-download-connections-per-stream-preset"]
         || config["usenet.max-queue-connections"] !== newConfig["usenet.max-queue-connections"]
         || config["usenet.streaming-priority"] !== newConfig["usenet.streaming-priority"]
         || config["usenet.article-buffer-size"] !== newConfig["usenet.article-buffer-size"]
@@ -261,8 +293,12 @@ function isValidUser(user: string): boolean {
     return regex.test(user);
 }
 
+function isAutoMaxDownloadConnections(value: string): boolean {
+    return value.trim() === "" || value.trim() === "0";
+}
+
 function isValidMaxDownloadConnections(value: string): boolean {
-    return isPositiveInteger(value);
+    return isAutoMaxDownloadConnections(value) || isPositiveInteger(value);
 }
 
 function isValidMaxQueueConnections(value: string): boolean {

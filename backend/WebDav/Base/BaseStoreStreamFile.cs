@@ -36,7 +36,7 @@ public abstract class BaseStoreStreamFile(HttpContext context, ConfigManager con
     private PrioritizedSemaphore? CreatePerStreamSemaphore()
     {
         if (!configManager.IsMaxDownloadConnectionsPerStream()) return null;
-        var max = Math.Max(1, configManager.GetMaxDownloadConnections());
+        var max = configManager.GetMaxDownloadConnectionsPerStreamCount();
         return new PrioritizedSemaphore(max, max, configManager.GetStreamingPriority());
     }
 }
