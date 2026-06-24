@@ -19,8 +19,29 @@ public abstract class BaseStoreStreamFile(HttpContext context, ConfigManager con
             StreamSemaphore = streamSemaphore,
         };
         var scopedDownloadPriorityContext = cancellationToken.SetContext(downloadPriorityContext);
+
+        // Keep this stream's per-stream budget in sync with live config changes,
+        // mirroring how DownloadingNntpClient resizes the shared streaming
+        // semaphore. The per-stream count depends on the total connection
+        // setting, the per-stream preset, and (in auto mode) the provider pool.
+        EventHandler<ConfigManager.ConfigEventArgs>? onConfigChanged = null;
+        if (streamSemaphore is { } perStreamSemaphore)
+        {
+            onConfigChanged = (_, e) =>
+            {
+                if (e.ChangedConfig.ContainsKey("usenet.max-download-connections")
+                    || e.ChangedConfig.ContainsKey("usenet.max-download-connections-per-stream-preset")
+                    || e.ChangedConfig.ContainsKey("usenet.providers"))
+                {
+                    perStreamSemaphore.UpdateMaxAllowed(configManager.GetMaxDownloadConnectionsPerStreamCount());
+                }
+            };
+            configManager.OnConfigChanged += onConfigChanged;
+        }
+
         context.Response.OnCompleted(() =>
         {
+            if (onConfigChanged is not null) configManager.OnConfigChanged -= onConfigChanged;
             scopedDownloadPriorityContext.Dispose();
             streamSemaphore?.Dispose();
             return Task.CompletedTask;
