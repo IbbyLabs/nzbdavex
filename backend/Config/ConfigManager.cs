@@ -316,7 +316,7 @@ public class ConfigManager
     public bool IsPlaySubtitlePreferenceEnabled()
     {
         var v = StringUtil.EmptyToNull(GetConfigValue("play.prefer-subtitles"));
-        return v == null || bool.Parse(v);
+        return v == null || !bool.TryParse(v, out var enabled) || enabled;
     }
 
     public bool IsGrabStallFailoverEnabled()
