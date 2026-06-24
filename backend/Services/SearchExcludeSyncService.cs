@@ -166,21 +166,26 @@ public sealed class SearchExcludeSyncService : BackgroundService
             await using var stream = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
             var body = await ReadCappedAsync(stream, ct).ConfigureAwait(false);
 
-            var items = ParsePayload(body);
-            // Don't let an empty or all-invalid payload wipe a previously-good snapshot —
-            // only commit when at least one pattern actually compiles. Otherwise keep the
-            // prior items/FetchedAt/Etag and surface the problem.
-            if (items.Count(p => ExcludePatternParser.Parse(p) is not null) == 0)
+            // Keep only patterns that actually compile, so the stored snapshot, the count
+            // shown in the UI, and the log line all reflect usable patterns — not raw lines
+            // that ExcludePatternParser would silently drop on every rebuild.
+            var valid = ParsePayload(body)
+                .Where(p => ExcludePatternParser.Parse(p) is not null)
+                .ToList();
+
+            // Don't let an empty or all-invalid payload wipe a previously-good snapshot;
+            // keep the prior items/FetchedAt/Etag and surface the problem instead.
+            if (valid.Count == 0)
             {
                 entry.Error = "Source returned no usable patterns; keeping the last good copy.";
                 return entry;
             }
 
-            entry.Items = items;
+            entry.Items = valid;
             entry.FetchedAt = now;
             entry.Etag = resp.Headers.ETag?.ToString();
             entry.Error = null;
-            Log.Information("Exclude-sync: refreshed {Url} ({Count} patterns)", url, items.Count);
+            Log.Information("Exclude-sync: refreshed {Url} ({Count} patterns)", url, valid.Count);
             return entry;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
