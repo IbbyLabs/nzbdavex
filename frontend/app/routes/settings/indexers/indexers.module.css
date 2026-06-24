@@ -570,7 +570,7 @@
 .sync-status-row {
     font-size: 0.82rem;
     line-height: 1.4;
-    word-break: break-word;
+    overflow-wrap: anywhere;
 }
 
 .sync-status-ok {

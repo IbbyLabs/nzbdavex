@@ -394,7 +394,9 @@ public class ConfigManager
         if (string.IsNullOrWhiteSpace(raw)) return Array.Empty<string>();
 
         var urls = new List<string>();
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // Exact-match dedup: URL paths are case-sensitive, so two URLs that differ only
+        // by path casing are distinct sources and must both be kept.
+        var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var line in raw.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             if (line.StartsWith('#')) continue;

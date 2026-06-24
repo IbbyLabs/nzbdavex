@@ -7,6 +7,7 @@ using NzbWebDAV.Config;
 using NzbWebDAV.Database;
 using NzbWebDAV.Database.Models;
 using NzbWebDAV.Models;
+using NzbWebDAV.Utils;
 using Serilog;
 
 namespace NzbWebDAV.Services;
@@ -165,11 +166,21 @@ public sealed class SearchExcludeSyncService : BackgroundService
             await using var stream = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
             var body = await ReadCappedAsync(stream, ct).ConfigureAwait(false);
 
-            entry.Items = ParsePayload(body);
+            var items = ParsePayload(body);
+            // Don't let an empty or all-invalid payload wipe a previously-good snapshot —
+            // only commit when at least one pattern actually compiles. Otherwise keep the
+            // prior items/FetchedAt/Etag and surface the problem.
+            if (items.Count(p => ExcludePatternParser.Parse(p) is not null) == 0)
+            {
+                entry.Error = "Source returned no usable patterns; keeping the last good copy.";
+                return entry;
+            }
+
+            entry.Items = items;
             entry.FetchedAt = now;
             entry.Etag = resp.Headers.ETag?.ToString();
             entry.Error = null;
-            Log.Information("Exclude-sync: refreshed {Url} ({Count} patterns)", url, entry.Items.Count);
+            Log.Information("Exclude-sync: refreshed {Url} ({Count} patterns)", url, items.Count);
             return entry;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)

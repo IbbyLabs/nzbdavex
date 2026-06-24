@@ -5,6 +5,7 @@ import { type Dispatch, type SetStateAction, useState, useCallback, useEffect, u
 type IndexersSettingsProps = {
     config: Record<string, string>
     setNewConfig: Dispatch<SetStateAction<Record<string, string>>>
+    savedConfig?: Record<string, string>
 };
 
 interface ResultFilter {
@@ -178,7 +179,7 @@ function isProxyUrlValid(raw: string): boolean {
     }
 }
 
-export function IndexersSettings({ config, setNewConfig }: IndexersSettingsProps) {
+export function IndexersSettings({ config, setNewConfig, savedConfig }: IndexersSettingsProps) {
     const indexerConfig = useMemo(() => parseConfig(config["indexers.instances"]), [config]);
     const [showModal, setShowModal] = useState(false);
     const [editingIndex, setEditingIndex] = useState<number | null>(null);
@@ -273,7 +274,14 @@ export function IndexersSettings({ config, setNewConfig }: IndexersSettingsProps
             // status is best-effort; ignore transient failures
         }
     }, []);
-    useEffect(() => { void loadSyncStatus(); }, [loadSyncStatus]);
+    // Load on mount, and re-pull after a save changes the synced URLs. The backend
+    // refetches on config change, so poll once immediately and once after it settles.
+    const savedSyncUrls = savedConfig?.["search.exclude-sync-urls"] ?? "";
+    useEffect(() => {
+        void loadSyncStatus();
+        const timer = setTimeout(() => { void loadSyncStatus(); }, 2000);
+        return () => clearTimeout(timer);
+    }, [savedSyncUrls, loadSyncStatus]);
     const handleSyncNow = useCallback(async () => {
         setIsSyncing(true);
         try {
@@ -466,7 +474,7 @@ export function IndexersSettings({ config, setNewConfig }: IndexersSettingsProps
                                     <div key={i} className={styles["sync-status-row"]}>
                                         {s.error
                                             ? <span className={styles["sync-status-bad"]}>✗ {syncHostLabel(s.url)} — {s.error}</span>
-                                            : <span className={styles["sync-status-ok"]}>✓ {syncHostLabel(s.url)} — {s.count} pattern{s.count === 1 ? "" : "s"}{s.fetchedAt ? ` · synced ${syncRelativeTime(s.fetchedAt)}` : ""}</span>}
+                                            : <span className={styles["sync-status-ok"]}>✓ {syncHostLabel(s.url)} — {s.count} pattern{s.count === 1 ? "" : "s"}{s.lastChecked ? ` · synced ${syncRelativeTime(s.lastChecked)}` : ""}</span>}
                                     </div>
                                 ))}
                             </div>

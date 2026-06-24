@@ -232,7 +232,7 @@ function Body(props: BodyProps) {
                     <UsenetSettings config={newConfig} setNewConfig={setNewConfig} />
                 </Tab>
                 <Tab eventKey="indexers" title={indexersTitle}>
-                    <IndexersSettings config={newConfig} setNewConfig={setNewConfig} />
+                    <IndexersSettings config={newConfig} setNewConfig={setNewConfig} savedConfig={config} />
                 </Tab>
                 <Tab eventKey="profiles" title={profilesTitle}>
                     <ProfilesSettings config={newConfig} setNewConfig={setNewConfig} />
