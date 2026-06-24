@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.IO;
 using System.Text;
 
 namespace NzbWebDAV.Utils;
@@ -6,9 +7,10 @@ namespace NzbWebDAV.Utils;
 /// <summary>
 /// Helpers for biasing playback failover toward releases that carry subtitles.
 /// Operates on the free-text subtitle attribute supplied by indexers (the Newznab
-/// "subs" attribute), normalising it into comparable language tokens so a fallback
-/// candidate can be ranked by whether it shares a subtitle language with the release
-/// the user actually clicked. Pure and side-effect free.
+/// "subs" attribute) and on sidecar subtitle filenames found inside a release's NZB,
+/// normalising indexer values into comparable language tokens so a fallback candidate
+/// can be ranked by whether it shares a subtitle language with the release the user
+/// actually clicked. Pure and side-effect free.
 /// </summary>
 public static class SubtitlePreference
 {
@@ -43,6 +45,13 @@ public static class SubtitlePreference
     private static readonly char[] Separators =
         [',', '/', ';', '|', '+', '&', ' ', '\t', '(', ')', '[', ']', '{', '}', '-', '_', '.'];
 
+    // Sidecar subtitle file extensions, used to detect subtitles shipped alongside the
+    // video inside a release's NZB file list.
+    private static readonly HashSet<string> SubtitleExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".srt", ".ass", ".ssa", ".sub", ".idx", ".vtt",
+    };
+
     /// <summary>
     /// Parse an indexer subtitle attribute (e.g. "English, Spanish") into a set of canonical
     /// language tokens. Returns an empty set when no subtitles are declared.
@@ -72,6 +81,16 @@ public static class SubtitlePreference
         if (languages.Count == 0) return 0;
         if (primaryHasSubs && languages.Overlaps(primaryLanguages)) return 2;
         return 1;
+    }
+
+    /// <summary>
+    /// True when the file name is a sidecar subtitle file (.srt/.ass/.ssa/.sub/.idx/.vtt).
+    /// </summary>
+    public static bool IsSubtitleFile(string? fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName)) return false;
+        var ext = Path.GetExtension(fileName);
+        return ext.Length > 0 && SubtitleExtensions.Contains(ext);
     }
 
     // Lowercase, strip accents, keep only letters/digits — so "Português" folds to "portugues".

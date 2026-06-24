@@ -9,6 +9,7 @@ using NzbWebDAV.Config;
 using NzbWebDAV.Database;
 using NzbWebDAV.Database.Models;
 using NzbWebDAV.Extensions;
+using NzbWebDAV.Models.Nzb;
 using NzbWebDAV.Queue;
 using NzbWebDAV.Services;
 using NzbWebDAV.Utils;
@@ -210,7 +211,7 @@ public class ProfilePlayController(
                 return await ResolveExistingOrErrorAsync(entry, 502,
                     "Failed to fetch NZB from indexer.", 10, HttpContext.RequestAborted).ConfigureAwait(false);
             }
-            var single = new PreVerifyResult(entry.Primary, nzbBytes, PlaybackFastVerifier.Verdict.Available, null);
+            var single = new PreVerifyResult(entry.Primary, nzbBytes, PlaybackFastVerifier.Verdict.Available, null, false);
             var (result, reason, newNzoId) = await CommitAsync(nzbToken, single, deadline, totalCts.Token).ConfigureAwait(false);
             RecordAttempt(clickId, entry.Primary, contentType, requestedTitle, 0,
                 MapCommitReason(reason), CommitReasonToMessage(reason), startsAt, isWinner: reason == CommitReason.Completed,
@@ -227,7 +228,8 @@ public class ProfilePlayController(
         // if all in a batch fail, advance to the next batch — until a winner, budget elapses,
         // total attempts (maxAttempts) are exhausted, or we run out of cached candidates.
         var preferredOrder = preferredOrderStore.GetOrder(entry.ProfileToken, entry.Type, entry.Id);
-        var fallbackQueue = BuildFallbackQueue(entry, preferredOrder, configManager.IsPlaySubtitlePreferenceEnabled());
+        var preferSubtitles = configManager.IsPlaySubtitlePreferenceEnabled();
+        var fallbackQueue = BuildFallbackQueue(entry, preferredOrder, preferSubtitles);
         var rankIndex = new Dictionary<string, int>();
         var displayRank = 0;
         var queueIndex = 0;
@@ -285,7 +287,7 @@ public class ProfilePlayController(
             attemptsUsed += pool.Count;
 
             var batch = await RunBatchAsync(pool, rankIndex, nzbToken, contentType, requestedTitle,
-                clickId, startsAt, verifyMode, verifySampleCount, hedgeDelay, deadline, totalCts, contentGroupKey).ConfigureAwait(false);
+                clickId, startsAt, verifyMode, verifySampleCount, hedgeDelay, deadline, totalCts, contentGroupKey, preferSubtitles).ConfigureAwait(false);
 
             switch (batch.Outcome)
             {
@@ -377,7 +379,8 @@ public class ProfilePlayController(
         TimeSpan hedgeDelay,
         DateTimeOffset deadline,
         CancellationTokenSource totalCts,
-        string? contentGroupKey)
+        string? contentGroupKey,
+        bool preferSubtitles)
     {
         foreach (var c in pool) startsAt[c.NzbUrl] = DateTimeOffset.UtcNow;
 
@@ -387,7 +390,7 @@ public class ProfilePlayController(
         // watchdog entry for that candidate instead of dropping it silently.
         var preVerifies = new List<Task<PreVerifyResult>>();
         var taskCandidates = new Dictionary<Task<PreVerifyResult>, NzbResolutionCache.Candidate>();
-        var primaryTask = PreVerifyAsync(pool[0], verifyMode, verifySampleCount, totalCts.Token);
+        var primaryTask = PreVerifyAsync(pool[0], verifyMode, verifySampleCount, preferSubtitles, totalCts.Token);
         preVerifies.Add(primaryTask);
         taskCandidates[primaryTask] = pool[0];
 
@@ -405,7 +408,7 @@ public class ProfilePlayController(
                 for (var i = 1; i < pool.Count; i++)
                 {
                     startsAt[pool[i].NzbUrl] = DateTimeOffset.UtcNow;
-                    var t = PreVerifyAsync(pool[i], verifyMode, verifySampleCount, totalCts.Token);
+                    var t = PreVerifyAsync(pool[i], verifyMode, verifySampleCount, preferSubtitles, totalCts.Token);
                     preVerifies.Add(t);
                     taskCandidates[t] = pool[i];
                 }
@@ -451,8 +454,22 @@ public class ProfilePlayController(
 
             if (ready.Count > 0)
             {
-                var best = ready.Values[0];
-                ready.RemoveAt(0);
+                // Among the verified candidates ready to commit, prefer the best-ranked one
+                // that carries subtitles (indexer-declared or a sidecar file in the NZB) over
+                // a subless one — but never trade a stronger verdict (Available) for a weaker
+                // one (Timeout) just to gain subs. ready is key-sorted, so each verdict tier is
+                // a contiguous block and we only reorder within the head's tier.
+                var pickIdx = 0;
+                if (preferSubtitles)
+                {
+                    var headVerdict = ready.Values[0].Verdict;
+                    for (var i = 0; i < ready.Count && ready.Values[i].Verdict == headVerdict; i++)
+                    {
+                        if (HasSubtitles(ready.Values[i])) { pickIdx = i; break; }
+                    }
+                }
+                var best = ready.Values[pickIdx];
+                ready.RemoveAt(pickIdx);
                 var (action, reason, newNzoId) = await CommitAsync(nzbToken, best, deadline, totalCts.Token).ConfigureAwait(false);
                 RecordAttempt(clickId, best.Candidate, contentType, requestedTitle,
                     rankIndex[best.Candidate.NzbUrl],
@@ -732,6 +749,7 @@ public class ProfilePlayController(
         NzbResolutionCache.Candidate candidate,
         string verifyMode,
         int verifySampleCount,
+        bool detectSidecarSubs,
         CancellationToken ct)
     {
         try
@@ -739,30 +757,49 @@ public class ProfilePlayController(
             var preflighted = preflightCache.Get(candidate.NzbUrl);
             if (preflighted is { Verdict: PlaybackFastVerifier.Verdict.Available, NzbBytes: { } cachedBytes })
             {
-                return new PreVerifyResult(candidate, cachedBytes, preflighted.Verdict, preflighted.ResponderHost);
+                var cachedSidecar = detectSidecarSubs && await HasSidecarSubtitlesAsync(cachedBytes).ConfigureAwait(false);
+                return new PreVerifyResult(candidate, cachedBytes, preflighted.Verdict, preflighted.ResponderHost, cachedSidecar);
             }
 
             var pvTimer = Stopwatch.StartNew();
             var nzbBytes = await FetchNzbBytesAsync(candidate, ct).ConfigureAwait(false);
             var msFetch = pvTimer.ElapsedMilliseconds;
             if (nzbBytes is null)
-                return new PreVerifyResult(candidate, null, PlaybackFastVerifier.Verdict.Dead, null);
+                return new PreVerifyResult(candidate, null, PlaybackFastVerifier.Verdict.Dead, null, false);
 
             pvTimer.Restart();
             using var verifyStream = new MemoryStream(nzbBytes, writable: false);
             var outcome = await fastVerifier.VerifyAsync(verifyStream, verifyMode, verifySampleCount, ct).ConfigureAwait(false);
+            var hasSidecar = detectSidecarSubs && await HasSidecarSubtitlesAsync(nzbBytes).ConfigureAwait(false);
             Log.Debug("play-timing preverify {Indexer} fetch={Fetch}ms verify={Verify}ms verdict={Verdict}",
                 candidate.IndexerName, msFetch, pvTimer.ElapsedMilliseconds, outcome.Verdict);
-            return new PreVerifyResult(candidate, nzbBytes, outcome.Verdict, outcome.ResponderHost);
+            return new PreVerifyResult(candidate, nzbBytes, outcome.Verdict, outcome.ResponderHost, hasSidecar);
         }
         catch (OperationCanceledException)
         {
-            return new PreVerifyResult(candidate, null, PlaybackFastVerifier.Verdict.Timeout, null);
+            return new PreVerifyResult(candidate, null, PlaybackFastVerifier.Verdict.Timeout, null, false);
         }
         catch (Exception e) when (!e.IsCancellationException())
         {
             Log.Debug(e, "Pre-verify failed for {Url}", candidate.NzbUrl);
-            return new PreVerifyResult(candidate, null, PlaybackFastVerifier.Verdict.Dead, null);
+            return new PreVerifyResult(candidate, null, PlaybackFastVerifier.Verdict.Dead, null, false);
+        }
+    }
+
+    // Parse the already-fetched NZB to see whether the release ships a sidecar subtitle
+    // file (.srt/.ass/...). No network — operates on bytes pre-verify already holds, and
+    // only runs when subtitle preference is enabled.
+    private static async Task<bool> HasSidecarSubtitlesAsync(byte[] nzbBytes)
+    {
+        try
+        {
+            using var stream = new MemoryStream(nzbBytes, writable: false);
+            var nzb = await NzbDocument.LoadAsync(stream).ConfigureAwait(false);
+            return nzb.Files.Any(f => SubtitlePreference.IsSubtitleFile(f.GetSubjectFileName()));
+        }
+        catch
+        {
+            return false; // malformed NZB → no subtitle signal; never fail playback over this
         }
     }
 
@@ -1241,5 +1278,11 @@ public class ProfilePlayController(
         NzbResolutionCache.Candidate Candidate,
         byte[]? NzbBytes,
         PlaybackFastVerifier.Verdict Verdict,
-        string? ResponderHost);
+        string? ResponderHost,
+        bool HasSidecarSubs);
+
+    // A candidate "has subtitles" if the indexer declared subs OR the NZB ships a sidecar
+    // subtitle file. Used to bias which verified candidate gets committed during failover.
+    private static bool HasSubtitles(PreVerifyResult r) =>
+        !string.IsNullOrWhiteSpace(r.Candidate.Subs) || r.HasSidecarSubs;
 }
